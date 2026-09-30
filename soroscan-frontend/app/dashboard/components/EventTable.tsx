@@ -174,7 +174,7 @@ export function EventTable({
 
   if (!events.length) {
     return (
-      <div className={styles.tableWrap}>
+      <div className={`${styles.tableWrap} min-h-[400px]`}>
         <div className={styles.emptyTable}>
           {hasActiveFilters ? (
             <EmptyState
@@ -220,7 +220,7 @@ export function EventTable({
   }
 
   return (
-    <div className={styles.tableWrap}>
+    <div className={`${styles.tableWrap} min-h-[400px]`}>
       <style>
         {`
           .soroscan-events-card-grid {
