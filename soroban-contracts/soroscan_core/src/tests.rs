@@ -696,3 +696,85 @@ fn soroscan_events_share_the_namespace_topic_and_name_their_family() {
     assert!(saw_sc24, "tagged events are namespaced under sc24");
     assert!(saw_batch, "batches emit a (soroscan, batch) summary");
 }
+
+
+// Issue #1705: counters must saturate instead of wrapping or panicking.
+// Tests seed instance storage inside the registered contract context.
+#[test]
+fn record_event_counters_saturate_at_u64_max() {
+    let env = Env::default();
+    let (contract_id, _, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&COUNTER_KEY, &u64::MAX);
+        let mut counts: Map<Address, u64> = Map::new(&env);
+        counts.set(indexer.clone(), u64::MAX);
+        env.storage().instance().set(&INDEXER_COUNTS_KEY, &counts);
+    });
+
+    let target = Address::generate(&env);
+    let payload_hash = BytesN::from_array(&env, &[0xAB; 32]);
+    let before = event_count(&env);
+    assert_eq!(
+        client.record_event(&indexer, &target, &symbol_short!("swap"), &payload_hash),
+        u64::MAX
+    );
+    assert_eq!(client.total_events(), u64::MAX);
+    assert_eq!(client.events_recorded_by(&indexer), u64::MAX);
+    assert_eq!(event_count(&env), before + 1, "event still gets published");
+}
+
+#[test]
+fn event_and_indexer_counters_saturate_after_reaching_max() {
+    let env = Env::default();
+    let (contract_id, _, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&COUNTER_KEY, &(u64::MAX - 1));
+        let mut counts: Map<Address, u64> = Map::new(&env);
+        counts.set(indexer.clone(), u64::MAX - 1);
+        env.storage().instance().set(&INDEXER_COUNTS_KEY, &counts);
+    });
+
+    let target = Address::generate(&env);
+    let payload_hash = BytesN::from_array(&env, &[0xBC; 32]);
+    for _ in 0..2 {
+        assert_eq!(
+            client.record_event(&indexer, &target, &symbol_short!("mint"), &payload_hash),
+            u64::MAX
+        );
+        assert_eq!(client.events_recorded_by(&indexer), u64::MAX);
+    }
+    assert_eq!(client.total_events(), u64::MAX);
+}
+
+#[test]
+fn batch_counters_saturate_at_u64_max() {
+    let env = Env::default();
+    let (contract_id, _, indexer) = setup(&env);
+    let client = SoroScanCoreClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&COUNTER_KEY, &u64::MAX);
+        let mut counts: Map<Address, u64> = Map::new(&env);
+        counts.set(indexer.clone(), u64::MAX);
+        env.storage().instance().set(&INDEXER_COUNTS_KEY, &counts);
+    });
+
+    let target = Address::generate(&env);
+    let mut entries: Vec<EventEntry> = Vec::new(&env);
+    for _ in 0..2 {
+        entries.push_back(EventEntry {
+            contract_id: target.clone(),
+            event_type: symbol_short!("swap"),
+            payload_hash: BytesN::from_array(&env, &[0xCD; 32]),
+        });
+    }
+    let before = event_count(&env);
+    assert_eq!(client.record_events_batch(&indexer, &entries), u64::MAX);
+    assert_eq!(client.total_events(), u64::MAX);
+    assert_eq!(client.events_recorded_by(&indexer), u64::MAX);
+    assert_eq!(event_count(&env), before + 3, "two events plus batch summary");
+}
